@@ -1971,16 +1971,17 @@ export default function StudentDashboard() {
 
         <Dialog open={showProfileCompletionModal}>
 
-          <DialogContent className="max-w-md">
+          <DialogContent className="max-w-md w-full max-h-[90vh] p-0 overflow-hidden">
 
-            <DialogHeader>
+            <DialogHeader className="p-6 pb-2">
               <DialogTitle>Complete Your Profile</DialogTitle>
               <DialogDescription>
-                Please select your caste and gender to continue
+                Please complete your profile to continue
               </DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-4">
+            {/* ✅ THIS PART ENABLES SCROLL */}
+            <div className="max-h-[75vh] overflow-y-auto p-6 space-y-4">
 
               <div>
                 <Label>Caste</Label>
