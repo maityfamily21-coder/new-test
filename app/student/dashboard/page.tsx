@@ -71,9 +71,35 @@ export default function StudentDashboard() {
   const [showProfileCompletionModal, setShowProfileCompletionModal] = useState(false)
   const [caste, setCaste] = useState("")
   const [gender, setGender] = useState("")
+  const [emergencyContact, setEmergencyContact] = useState("")
+  const [dob, setDob] = useState("")
+
+  const [addressHouse, setAddressHouse] = useState("")
+  const [addressBlock, setAddressBlock] = useState("")
+  const [addressLandmark, setAddressLandmark] = useState("")
+  const [addressArea, setAddressArea] = useState("")
+  const [addressCity, setAddressCity] = useState("")
+  const [addressState, setAddressState] = useState("")
+  const [addressPincode, setAddressPincode] = useState("")
   const [savingProfile, setSavingProfile] = useState(false)
 
   const router = useRouter()
+
+  const fetchPincodeDetails = async (pincode: string) => {
+
+    if (pincode.length !== 6) return
+
+    const res = await fetch(`https://api.postalpincode.in/pincode/${pincode}`)
+    const data = await res.json()
+
+    if (data[0].Status === "Success") {
+
+      setAddressCity(data[0].PostOffice[0].District)
+      setAddressState(data[0].PostOffice[0].State)
+
+    }
+
+  }
 
   useEffect(() => {
     const authData = StudentAuthManager.getAuth()
@@ -220,7 +246,18 @@ export default function StudentDashboard() {
         body: JSON.stringify({
           studentId: student?.id,
           caste,
-          gender
+          gender,
+
+          emergency_contact_number: emergencyContact,
+          date_of_birth: dob,
+
+          address_house: addressHouse,
+          address_block: addressBlock,
+          address_landmark: addressLandmark,
+          address_area: addressArea,
+          address_city: addressCity,
+          address_state: addressState,
+          address_pincode: addressPincode
         })
       })
 
@@ -1972,6 +2009,91 @@ export default function StudentDashboard() {
                   <option value="Female">Female</option>
                   <option value="Transgender">Transgender</option>
                 </select>
+              </div>
+
+              <div>
+                <Label>Emergency Contact Number</Label>
+                <input
+                  className="w-full border rounded-md p-2"
+                  value={emergencyContact}
+                  onChange={(e) => setEmergencyContact(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <Label>Date of Birth</Label>
+                <input
+                  type="date"
+                  className="w-full border rounded-md p-2"
+                  value={dob}
+                  onChange={(e) => setDob(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <Label>House Number</Label>
+                <input
+                  className="w-full border rounded-md p-2"
+                  value={addressHouse}
+                  onChange={(e) => setAddressHouse(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <Label>Block</Label>
+                <input
+                  className="w-full border rounded-md p-2"
+                  value={addressBlock}
+                  onChange={(e) => setAddressBlock(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <Label>Landmark</Label>
+                <input
+                  className="w-full border rounded-md p-2"
+                  value={addressLandmark}
+                  onChange={(e) => setAddressLandmark(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <Label>Area</Label>
+                <input
+                  className="w-full border rounded-md p-2"
+                  value={addressArea}
+                  onChange={(e) => setAddressArea(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <Label>Pincode</Label>
+                <input
+                  className="w-full border rounded-md p-2"
+                  value={addressPincode}
+                  onChange={(e) => {
+                    setAddressPincode(e.target.value)
+                    fetchPincodeDetails(e.target.value)
+                  }}
+                />
+              </div>
+
+              <div>
+                <Label>City</Label>
+                <input
+                  className="w-full border rounded-md p-2 bg-gray-100"
+                  value={addressCity}
+                  readOnly
+                />
+              </div>
+
+              <div>
+                <Label>State</Label>
+                <input
+                  className="w-full border rounded-md p-2 bg-gray-100"
+                  value={addressState}
+                  readOnly
+                />
               </div>
 
               <Button
