@@ -1,49 +1,88 @@
-import { NextRequest, NextResponse } from "next/server";
-import { Pool } from "pg";
+import { NextRequest, NextResponse } from "next/server"
+import { validateStudentAuth, createStudentUnauthorizedResponse } from "@/lib/student-auth-server"
+import { sql } from "@/lib/db"
 
-// Neon PostgreSQL connection
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
+export async function POST(request: NextRequest) {
 
-export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
 
-    const { studentId, caste, gender } = body;
+    // ✅ Validate student auth
+    const authResult = await validateStudentAuth(request)
 
-    // validation
-    if (!studentId || !caste || !gender) {
-      return NextResponse.json(
-        { error: "Missing required fields" },
-        { status: 400 }
-      );
+    if (!authResult.success) {
+      return createStudentUnauthorizedResponse(authResult.error)
     }
 
-    // update student profile
-    const result = await pool.query(
-      `
-      UPDATE students
-      SET caste = $1,
-          gender = $2,
-          profile_completed = true
-      WHERE id = $3
-      RETURNING id, caste, gender, profile_completed
-      `,
-      [caste, gender, studentId]
-    );
+    const body = await request.json()
+
+    const {
+      studentId,
+      caste,
+      gender,
+
+      emergency_contact_number,
+      date_of_birth,
+
+      address_house,
+      address_block,
+      address_landmark,
+      address_area,
+      address_city,
+      address_state,
+      address_pincode
+
+    } = body
+
+    if (!studentId) {
+
+      return NextResponse.json({
+        success: false,
+        message: "Student ID required"
+      })
+
+    }
+
+    // ✅ Update student profile
+    await sql`
+
+      UPDATE students SET
+
+        caste = ${caste},
+        gender = ${gender},
+
+        emergency_contact_number = ${emergency_contact_number},
+        date_of_birth = ${date_of_birth},
+
+        address_house = ${address_house},
+        address_block = ${address_block},
+        address_landmark = ${address_landmark},
+        address_area = ${address_area},
+        address_city = ${address_city},
+        address_state = ${address_state},
+        address_pincode = ${address_pincode},
+
+        profile_completed = TRUE
+
+      WHERE id = ${studentId}
+
+    `
 
     return NextResponse.json({
       success: true,
-      student: result.rows[0],
-    });
+      message: "Profile updated successfully"
+    })
 
-  } catch (error) {
-    console.error("Profile update error:", error);
-
-    return NextResponse.json(
-      { error: "Database update failed" },
-      { status: 500 }
-    );
   }
+
+  catch (error) {
+
+    console.error("Profile update error:", error)
+
+    return NextResponse.json({
+      success: false,
+      message: "Server error"
+    })
+
+  }
+
 }

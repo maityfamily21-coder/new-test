@@ -61,3 +61,15 @@ CREATE INDEX IF NOT EXISTS idx_lectures_tutor ON lectures(tutor_id);
 CREATE INDEX IF NOT EXISTS idx_lectures_date ON lectures(lecture_date);
 CREATE INDEX IF NOT EXISTS idx_lecture_attendance_lecture ON lecture_attendance(lecture_id);
 CREATE INDEX IF NOT EXISTS idx_lecture_attendance_student ON lecture_attendance(student_id);
+
+
+
+
+-- extra
+ALTER TABLE tutors 
+ADD COLUMN ifsc_code VARCHAR(20),
+ADD COLUMN account_number VARCHAR(25),
+ADD COLUMN bank_name VARCHAR(255),
+ADD COLUMN aadhar_card_no VARCHAR(15),
+ADD COLUMN pan_number VARCHAR(15);
+ADD COLUMN Name_as_per_bank VARCHAR(255);
