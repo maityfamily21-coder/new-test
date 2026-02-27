@@ -42,6 +42,7 @@ import { AnimatedAssistants } from "@/components/animated-assistants"
 import { AnnouncementsModal } from "@/components/announcements-modal"
 import { StudentLectureProgress } from "@/components/student-lecture-progress"
 import { LectureQRScanner } from "@/components/lecture-qr-scanner"
+import { StudentFeedbackModal } from "@/components/student-feedback-modal"
 
 export default function StudentDashboard() {
   const [student, setStudent] = useState<Student | null>(null)
@@ -66,6 +67,8 @@ export default function StudentDashboard() {
 
   const [activeModal, setActiveModal] = useState<string | null>(null)
   const [attendanceRefresh, setAttendanceRefresh] = useState(0)
+  const [feedbackModalOpen, setFeedbackModalOpen] = useState(false)
+  const [pendingFeedback, setPendingFeedback] = useState<any[]>([])
 
   // ✅ Profile completion modal state
   const [showProfileCompletionModal, setShowProfileCompletionModal] = useState(false)
@@ -99,6 +102,19 @@ export default function StudentDashboard() {
 
     }
 
+  }
+
+  const fetchPendingFeedback = async () => {
+    if (!student) return
+    try {
+      const response = await fetch(`/api/feedback?studentId=${student.id}&action=pending`)
+      const data = await response.json()
+      if (data.success) {
+        setPendingFeedback(data.pending || [])
+      }
+    } catch (error) {
+      console.error("Error fetching pending feedback:", error)
+    }
   }
 
   useEffect(() => {
@@ -507,6 +523,7 @@ export default function StudentDashboard() {
     { label: "My Exams", icon: Calendar, id: "exams", color: "cyan" },
     { label: "Academics", icon: BookOpen, id: "academics", color: "cyan" },
     { label: "My Fees", icon: DollarSign, id: "fees", color: "emerald" },
+    { label: "Tutor Feedback", icon: Star, id: "feedback", color: "yellow" },
   ]
 
   return (
@@ -660,6 +677,9 @@ export default function StudentDashboard() {
                         router.push("/student/academics")
                       } else if (action.id === "fees") {
                         router.push("/student/fees")
+                      } else if (action.id === "feedback") {
+                        fetchPendingFeedback()
+                        setFeedbackModalOpen(true)
                       } else if (action.id === "contact") {
                         window.location.href = "/student/contact"
                       } else {
@@ -1965,6 +1985,18 @@ export default function StudentDashboard() {
           open={announcementsModalOpen}
           onOpenChange={setAnnouncementsModalOpen}
           announcements={broadcasts.filter((b) => !dismissedBroadcasts.has(b.id))}
+        />
+
+        {/* ✅ Student Feedback Modal */}
+        <StudentFeedbackModal
+          open={feedbackModalOpen}
+          onOpenChange={setFeedbackModalOpen}
+          studentId={student?.id || 0}
+          pending={pendingFeedback}
+          onSubmitSuccess={() => {
+            setFeedbackModalOpen(false)
+            fetchPendingFeedback()
+          }}
         />
 
         {/* ✅ Profile Completion Mandatory Modal */}
