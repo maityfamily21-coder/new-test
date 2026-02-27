@@ -1373,7 +1373,7 @@ export default function StudentDashboard() {
 
         {/* QR Code Modal */}
         <Dialog open={activeModal === "qr"} onOpenChange={(open) => !open && setActiveModal(null)}>
-          <DialogContent className="max-w-md">
+          <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center">
                 <QrCode className="w-5 h-5 mr-2" />
@@ -2081,18 +2081,18 @@ export default function StudentDashboard() {
               <div>
                 <Label>City</Label>
                 <input
-                  className="w-full border rounded-md p-2 bg-gray-100"
                   value={addressCity}
                   readOnly
+                  className="w-full border rounded-md p-2 bg-gray-100 dark:bg-gray-800 text-black dark:text-white"
                 />
               </div>
 
               <div>
                 <Label>State</Label>
                 <input
-                  className="w-full border rounded-md p-2 bg-gray-100"
                   value={addressState}
                   readOnly
+                  className="w-full border rounded-md p-2 bg-gray-100 dark:bg-gray-800 text-black dark:text-white"
                 />
               </div>
 
