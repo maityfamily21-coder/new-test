@@ -1,4 +1,4 @@
-import PDFDocument from 'pdfkit'
+import PDFDocument from 'pdfkit/js/pdfkit.standalone.js'
 import { neon } from "@neondatabase/serverless"
 
 const sql = neon(process.env.DATABASE_URL!)
@@ -57,65 +57,120 @@ export async function POST(request: Request) {
       AND DATE(l.lecture_date) BETWEEN ${fromDate} AND ${toDate}
     `
 
-    const attMap = new Map(
-      attendanceData.map((r: any) => [`${r.lecture_id}-${r.student_id}`, r.status])
-    )
+    /* ===================== PDF GENERATION ===================== */
 
-    /* ===================== PDF SETUP ===================== */
-    const pdfDoc = new PDFDocument({ size: 'LETTER', margin: 30 })
+    const pdfDoc = new PDFDocument({
+      size: 'A4',
+      margin: 40
+    })
 
-    // Simple attendance report using pdfkit
-    pdfDoc.fontSize(14).font('Helvetica-Bold').text('Visiting Tutor Payment Voucher Report', { align: 'center' })
-    
+    const chunks: Uint8Array[] = []
+
+    pdfDoc.on('data', (chunk) => chunks.push(chunk))
+
+    const pdfPromise = new Promise<Response>((resolve, reject) => {
+
+      pdfDoc.on('end', () => {
+        const pdfBuffer = Buffer.concat(chunks)
+
+        resolve(new Response(pdfBuffer, {
+          headers: {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': 'attachment; filename="attendance-report.pdf"',
+          },
+        }))
+      })
+
+      pdfDoc.on('error', reject)
+    })
+
+    /* ===================== CONTENT ===================== */
+
+    pdfDoc
+      .fontSize(16)
+      .font('Helvetica-Bold')
+      .text('Visiting Tutor Payment Voucher Report', { align: 'center' })
+
     pdfDoc.moveDown()
+
     pdfDoc.fontSize(10).font('Helvetica')
+
     pdfDoc.text(`Tutor Name: ${tutorInfo[0]?.name || 'N/A'}`)
     pdfDoc.text(`Department: ${tutorInfo[0]?.department || 'N/A'}`)
     pdfDoc.text(`Course: ${subjectInfo[0]?.course_name || 'N/A'}`)
     pdfDoc.text(`Subject: ${subjectInfo[0]?.name || 'N/A'} [${subjectInfo[0]?.code || 'N/A'}]`)
     pdfDoc.text(`Date Range: ${fromDate} to ${toDate}`)
     pdfDoc.text(`Total Lectures Conducted: ${lectures.length}`)
-    
+
     const totalPossible = students.length * lectures.length
     const totalPresent = attendanceData.filter((r: any) => r.status === 'Present').length
-    const overallPercentage = totalPossible > 0 ? ((totalPresent / totalPossible) * 100).toFixed(2) : '0.00'
+    const overallPercentage =
+      totalPossible > 0
+        ? ((totalPresent / totalPossible) * 100).toFixed(2)
+        : '0.00'
+
     pdfDoc.text(`Overall Present Percentage: ${overallPercentage}%`)
-    
+
     pdfDoc.moveDown()
-    pdfDoc.fontSize(12).font('Helvetica-Bold').text('LECTURE TOPICS CONDUCTED:', { underline: true })
+
+    pdfDoc.fontSize(12).font('Helvetica-Bold')
+      .text('LECTURE TOPICS CONDUCTED:', { underline: true })
+
     pdfDoc.moveDown()
-    
+
     for (const l of lectures) {
+
       const start = new Date(l.lecture_date)
-      const FOUR_HOUR_SUBJECTS = ['DCS-C-VC-362P2', 'DSC-C-DF-111P', 'DSC-C-DF-112P']
+
+      const FOUR_HOUR_SUBJECTS = [
+        'DCS-C-VC-362P2',
+        'DSC-C-DF-111P',
+        'DSC-C-DF-112P'
+      ]
+
       const isSpecial = FOUR_HOUR_SUBJECTS.includes(subjectInfo[0]?.code)
-      const end = new Date(start.getTime() + (isSpecial ? 4 * 60 * 60 * 1000 : 55 * 60000))
-      
-      const presentCount = attendanceData.filter((a: any) => a.lecture_id === l.id && a.status === 'Present').length
-      
+
+      const end = new Date(
+        start.getTime() +
+        (isSpecial ? 4 * 60 * 60 * 1000 : 55 * 60000)
+      )
+
+      const presentCount = attendanceData.filter(
+        (a: any) => a.lecture_id === l.id && a.status === 'Present'
+      ).length
+
       pdfDoc.fontSize(9).font('Helvetica')
+
       pdfDoc.text(
-        `${start.toLocaleDateString('en-GB')} [${start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}] ` +
-        `[${end.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}] (${presentCount}/${students.length}) - ${l.title}`
+        `${start.toLocaleDateString('en-GB')} ` +
+        `[${start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}] ` +
+        `[${end.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}] ` +
+        `(${presentCount}/${students.length}) - ${l.title}`
       )
     }
-    
-    pdfDoc.moveDown()
-    pdfDoc.fontSize(10).font('Helvetica-Bold').text('Visiting Tutor Sign: ____________________', { x: 50 })
-    pdfDoc.text(`(${tutorInfo[0]?.name || 'N/A'})`, { x: 50 })
 
-    return new Promise((resolve, reject) => {
-      const chunks: any[] = []
-      pdfDoc.on('data', (chunk: any) => chunks.push(chunk))
-      pdfDoc.on('end', () => {
-        const pdfBuffer = Buffer.concat(chunks)
-        resolve(new Response(pdfBuffer, { headers: { 'Content-Type': 'application/pdf' } }))
-      })
-      pdfDoc.on('error', reject)
-      pdfDoc.end()
-    })
+    pdfDoc.moveDown()
+    pdfDoc.moveDown()
+
+    pdfDoc.fontSize(10).font('Helvetica-Bold')
+      .text('Visiting Tutor Sign: ____________________')
+
+    pdfDoc.fontSize(10).font('Helvetica')
+      .text(`(${tutorInfo[0]?.name || 'N/A'})`)
+
+    /* ===================== FINALIZE ===================== */
+
+    pdfDoc.end()
+
+    return await pdfPromise
+
   } catch (error) {
-    console.error(error)
-    return Response.json({ success: false }, { status: 500 })
+
+    console.error("PDF generation error:", error)
+
+    return Response.json({
+      success: false,
+      error: "Failed to generate report"
+    }, { status: 500 })
   }
 }
