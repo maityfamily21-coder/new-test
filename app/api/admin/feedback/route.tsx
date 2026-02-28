@@ -13,11 +13,11 @@ export async function GET(request: NextRequest) {
       try {
         const summaryResult = await sql`
           SELECT 
-            COALESCE((SELECT COUNT(DISTINCT id) FROM students WHERE is_active = true), 0) as total_eligible_students,
+            COALESCE((SELECT COUNT(DISTINCT id) FROM students), 0) as total_eligible_students,
             COALESCE((SELECT COUNT(DISTINCT student_id) FROM tutor_feedback), 0) as total_submitted,
             COALESCE((SELECT COUNT(DISTINCT id) FROM tutor_feedback), 0) as total_feedback_count,
             COALESCE(ROUND((SELECT COUNT(DISTINCT student_id) FROM tutor_feedback)::numeric / 
-                  NULLIF((SELECT COUNT(DISTINCT id) FROM students WHERE is_active = true), 0) * 100, 2), 0) as completion_percentage,
+                  NULLIF((SELECT COUNT(DISTINCT id) FROM students), 0) * 100, 2), 0) as completion_percentage,
             COALESCE((SELECT AVG(rating) FROM tutor_feedback), 0) as overall_avg_rating
         `
         return NextResponse.json({ success: true, summary: summaryResult.rows[0] })
@@ -75,14 +75,14 @@ export async function GET(request: NextRequest) {
             st.enrollment_number,
             COALESCE(COUNT(DISTINCT tf.id), 0) as submitted_count,
             COALESCE((SELECT COUNT(DISTINCT s.id) FROM subjects s 
-             JOIN enrollments e ON s.id = e.subject_id
-             WHERE e.student_id = st.id), 0) as eligible_count,
+             LEFT JOIN subject_tutors st ON s.id = st.subject_id
+             WHERE st.tutor_id IS NOT NULL), 0) as eligible_count,
             COALESCE(ARRAY_AGG(DISTINCT CASE WHEN tf.id IS NULL THEN s.name END) FILTER (WHERE tf.id IS NULL), ARRAY[]::text[]) as pending_subjects
           FROM students st
-          LEFT JOIN enrollments e ON st.id = e.student_id
-          LEFT JOIN subjects s ON e.subject_id = s.id
-          LEFT JOIN tutor_feedback tf ON st.id = tf.student_id AND s.id = tf.subject_id
-          WHERE st.is_active = true
+          LEFT JOIN subjects s ON true
+          LEFT JOIN subject_tutors st_t ON s.id = st_t.subject_id
+          LEFT JOIN tutor_feedback tf ON st.id = tf.student_id AND s.id = tf.subject_id AND st_t.tutor_id = tf.tutor_id
+          WHERE st_t.tutor_id IS NOT NULL
           GROUP BY st.id, st.name, st.enrollment_number
           ORDER BY st.name
         `
