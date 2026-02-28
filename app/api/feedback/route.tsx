@@ -27,8 +27,21 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === "pending" && studentId) {
-      // Get pending feedback subjects for student - all subjects with assigned tutors
+      // Get pending feedback subjects for student - based on their course and semester
       try {
+        // First get student's course and current semester
+        const studentResult = await sql`
+          SELECT st.course_id, st.current_semester FROM students st WHERE st.id = ${studentId}
+        `
+        const student = studentResult.rows[0]
+        
+        console.log("[v0] Student course_id:", student?.course_id, "semester:", student?.current_semester)
+        
+        if (!student?.course_id || !student?.current_semester) {
+          return NextResponse.json({ success: true, pending: [] })
+        }
+
+        // Get all subjects for the student's course and semester, with their assigned tutors
         const pendingResult = await sql`
           SELECT DISTINCT 
             s.id,
@@ -38,7 +51,9 @@ export async function GET(request: NextRequest) {
           FROM subjects s
           JOIN subject_tutors st ON s.id = st.subject_id
           JOIN tutors t ON st.tutor_id = t.id
-          WHERE NOT EXISTS (
+          WHERE s.course_id = ${student.course_id}
+          AND s.semester = ${student.current_semester}
+          AND NOT EXISTS (
             SELECT 1 FROM tutor_feedback tf
             WHERE tf.student_id = ${studentId}
             AND tf.subject_id = s.id
