@@ -39,22 +39,21 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === "tutorwise") {
-      // Tutor-wise breakdown
+      // Tutor-wise breakdown with attendance filter
       try {
         const tutorWiseResult = await sql`
           SELECT 
             t.id,
             t.name,
-            s.name as subject_name,
-            COUNT(DISTINCT tf.student_id) as feedback_count,
-            ROUND(AVG(tf.rating)::numeric, 2) as average_rating,
-            COUNT(DISTINCT CASE WHEN tf.rating >= 4 THEN tf.student_id END) as positive_count
+            COALESCE(s.name, 'Unknown') as subject_name,
+            COALESCE(COUNT(DISTINCT tf.student_id), 0) as feedback_count,
+            COALESCE(ROUND(AVG(tf.rating)::numeric, 2), 0) as average_rating,
+            COALESCE(COUNT(DISTINCT CASE WHEN tf.rating >= 4 THEN tf.student_id END), 0) as positive_count
           FROM tutors t
-          JOIN subject_tutors st ON t.id = st.tutor_id
-          JOIN subjects s ON st.subject_id = s.id
+          LEFT JOIN subject_tutors st ON t.id = st.tutor_id
+          LEFT JOIN subjects s ON st.subject_id = s.id
           LEFT JOIN tutor_feedback tf ON t.id = tf.tutor_id AND s.id = tf.subject_id
-          GROUP BY t.id, t.name, s.id, s.name
-          HAVING COUNT(DISTINCT tf.student_id) > 0
+          GROUP BY t.id, t.name, s.name
           ORDER BY t.name, s.name
         `
         return NextResponse.json({ success: true, tutorwise: tutorWiseResult.rows })
@@ -74,14 +73,16 @@ export async function GET(request: NextRequest) {
             st.id,
             st.name,
             st.enrollment_number,
-            COUNT(DISTINCT tf.id) as submitted_count,
-            COUNT(DISTINCT s.id) as eligible_count,
-            ARRAY_AGG(DISTINCT s.name) FILTER (WHERE tf.id IS NULL) as pending_subjects
+            COALESCE(COUNT(DISTINCT tf.id), 0) as submitted_count,
+            COALESCE((SELECT COUNT(DISTINCT s.id) FROM subjects s 
+             LEFT JOIN subject_tutors st ON s.id = st.subject_id
+             WHERE st.tutor_id IS NOT NULL), 0) as eligible_count,
+            COALESCE(ARRAY_AGG(DISTINCT CASE WHEN tf.id IS NULL THEN s.name END) FILTER (WHERE tf.id IS NULL), ARRAY[]::text[]) as pending_subjects
           FROM students st
-          JOIN enrollments e ON st.id = e.student_id
-          JOIN subjects s ON e.subject_id = s.id
-          JOIN subject_tutors st_t ON s.id = st_t.subject_id
+          LEFT JOIN subjects s ON true
+          LEFT JOIN subject_tutors st_t ON s.id = st_t.subject_id
           LEFT JOIN tutor_feedback tf ON st.id = tf.student_id AND s.id = tf.subject_id AND st_t.tutor_id = tf.tutor_id
+          WHERE st_t.tutor_id IS NOT NULL
           GROUP BY st.id, st.name, st.enrollment_number
           ORDER BY st.name
         `
