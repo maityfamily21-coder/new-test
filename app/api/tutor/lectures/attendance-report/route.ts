@@ -43,11 +43,19 @@ export async function POST(request: Request) {
       AND current_semester = ${subjectInfo[0].semester}
     `
 
-    const attendanceData = await sql`
-      SELECT lecture_id, status
-      FROM lecture_attendance
-      WHERE lecture_id IN (${lectures.map(l => l.id)})
-    `
+    let attendanceData: any[] = []
+
+    if (lectures.length > 0) {
+
+      const lectureIds = lectures.map(l => l.id)
+
+      attendanceData = await sql`
+    SELECT lecture_id, status
+    FROM lecture_attendance
+    WHERE lecture_id = ANY(${lectureIds})
+  `
+
+    }
 
     /* ================= PDF ================= */
 
@@ -114,10 +122,12 @@ export async function POST(request: Request) {
 
     y -= 25
 
+    let currentPage = page
+
     for (const lecture of lectures) {
 
       if (y < 50) {
-        const newPage = pdfDoc.addPage([595, 842])
+        currentPage = pdfDoc.addPage([595, 842])
         y = 800
       }
 
@@ -126,10 +136,8 @@ export async function POST(request: Request) {
           a => a.lecture_id === lecture.id && a.status === "Present"
         ).length
 
-      page.drawText(
-
+      currentPage.drawText(
         `${new Date(lecture.lecture_date).toLocaleDateString()}  (${presentCount}/${students.length})  ${lecture.title}`,
-
         {
           x: 50,
           y,
