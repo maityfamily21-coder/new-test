@@ -46,17 +46,17 @@ export async function GET(request: NextRequest) {
             t.id,
             t.name,
             s.name as subject_name,
-            COALESCE(COUNT(DISTINCT tf.student_id), 0) as feedback_count,
-            COALESCE(ROUND(AVG(tf.rating)::numeric, 2), 0) as average_rating,
-            COALESCE(COUNT(DISTINCT CASE WHEN tf.rating >= 4 THEN tf.student_id END), 0) as positive_count
+            COUNT(DISTINCT tf.student_id) as feedback_count,
+            ROUND(AVG(tf.rating)::numeric, 2) as average_rating,
+            COUNT(DISTINCT CASE WHEN tf.rating >= 4 THEN tf.student_id END) as positive_count
           FROM tutors t
           JOIN subject_tutors st ON t.id = st.tutor_id
           JOIN subjects s ON st.subject_id = s.id
-          LEFT JOIN tutor_feedback tf ON t.id = tf.tutor_id AND s.id = tf.subject_id AND tf.tutor_id IS NOT NULL
+          LEFT JOIN tutor_feedback tf ON t.id = tf.tutor_id AND s.id = tf.subject_id
           GROUP BY t.id, t.name, s.id, s.name
+          HAVING COUNT(DISTINCT tf.student_id) > 0
           ORDER BY t.name, s.name
         `
-        console.log("[v0] Tutorwise feedback:", tutorWiseResult.rows.length, "entries")
         return NextResponse.json({ success: true, tutorwise: tutorWiseResult.rows })
       } catch (tableError: any) {
         if (tableError.message?.includes("does not exist")) {
