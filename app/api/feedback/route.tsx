@@ -29,15 +29,33 @@ export async function GET(request: NextRequest) {
     if (action === "pending" && studentId) {
       // Get pending feedback subjects for student - all subjects they can rate
       try {
+        // Debug: Check what subjects and tutors exist
+        const allSubjects = await sql`SELECT id, name FROM subjects LIMIT 10`
+        const allTutors = await sql`SELECT id, name FROM tutors LIMIT 10`
+        
+        console.log("[v0] All subjects:", allSubjects.rows)
+        console.log("[v0] All tutors:", allTutors.rows)
+        
+        // Try to get subject_tutors - if it doesn't exist, try to get from tutors
+        let subjectTutorsRows = []
+        try {
+          const allSubjectTutors = await sql`SELECT subject_id, tutor_id FROM subject_tutors LIMIT 20`
+          subjectTutorsRows = allSubjectTutors.rows
+        } catch (e) {
+          console.log("[v0] subject_tutors table doesn't exist or error querying it")
+        }
+        
+        console.log("[v0] Subject-tutor mappings:", subjectTutorsRows)
+        
+        // Simple approach: get all subjects and pair with all tutors
         const pendingResult = await sql`
           SELECT DISTINCT 
             s.id,
             s.name,
             t.id as tutor_id,
             t.name as tutor_name
-          FROM subjects s
-          LEFT JOIN subject_tutors st ON s.id = st.subject_id
-          LEFT JOIN tutors t ON st.tutor_id = t.id
+          FROM subjects s,
+               tutors t
           WHERE t.id IS NOT NULL
           AND NOT EXISTS (
             SELECT 1 FROM tutor_feedback tf
@@ -45,7 +63,9 @@ export async function GET(request: NextRequest) {
             AND tf.subject_id = s.id
             AND tf.tutor_id = t.id
           )
+          LIMIT 50
         `
+        console.log("[v0] Pending feedback for student", studentId, ":", pendingResult.rows)
         return NextResponse.json({ success: true, pending: pendingResult.rows })
       } catch (tableError: any) {
         if (tableError.message?.includes("does not exist")) {
