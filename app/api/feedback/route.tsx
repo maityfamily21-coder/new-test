@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === "pending" && studentId) {
-      // Get pending feedback subjects for student - only enrolled subjects with assigned tutors
+      // Get pending feedback subjects for student - all subjects with assigned tutors
       try {
         const pendingResult = await sql`
           SELECT DISTINCT 
@@ -35,12 +35,10 @@ export async function GET(request: NextRequest) {
             s.name,
             t.id as tutor_id,
             t.name as tutor_name
-          FROM enrollments e
-          JOIN subjects s ON e.subject_id = s.id
+          FROM subjects s
           JOIN subject_tutors st ON s.id = st.subject_id
           JOIN tutors t ON st.tutor_id = t.id
-          WHERE e.student_id = ${studentId}
-          AND NOT EXISTS (
+          WHERE NOT EXISTS (
             SELECT 1 FROM tutor_feedback tf
             WHERE tf.student_id = ${studentId}
             AND tf.subject_id = s.id
@@ -48,6 +46,7 @@ export async function GET(request: NextRequest) {
           )
           ORDER BY s.name, t.name
         `
+        console.log("[v0] Pending feedback found:", pendingResult.rows.length, "subjects")
         return NextResponse.json({ success: true, pending: pendingResult.rows })
       } catch (tableError: any) {
         if (tableError.message?.includes("does not exist")) {
