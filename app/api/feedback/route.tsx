@@ -27,57 +27,27 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === "pending" && studentId) {
-      // Get pending feedback subjects for student
+      // Get pending feedback subjects for student - only enrolled subjects with assigned tutors
       try {
-        // Step 1: Check what subjects and tutors exist
-        const subjectsCheck = await sql`SELECT COUNT(*) as count FROM subjects`
-        const tutorsCheck = await sql`SELECT COUNT(*) as count FROM tutors`
-        const mappingsCheck = await sql`SELECT COUNT(*) as count FROM subject_tutors`
-        
-        console.log("[v0] DB Check - Subjects:", subjectsCheck.rows[0]?.count, "Tutors:", tutorsCheck.rows[0]?.count, "Mappings:", mappingsCheck.rows[0]?.count)
-        
-        // Step 2: Get student info
-        const studentResult = await sql`
-          SELECT id, course_id, current_semester FROM students WHERE id = ${studentId}
-        `
-        const student = studentResult.rows[0]
-        console.log("[v0] Student found:", !!student, "Course:", student?.course_id, "Semester:", student?.current_semester)
-        
-        let pendingResult = { rows: [] }
-        
-        // Step 3: Simple approach - get all subjects with tutors, without complex filtering
-        const allSubjectsTutors = await sql`
+        const pendingResult = await sql`
           SELECT DISTINCT 
             s.id,
             s.name,
             t.id as tutor_id,
-            t.name as tutor_name,
-            s.course_id,
-            s.semester
-          FROM subjects s
-          LEFT JOIN subject_tutors st ON s.id = st.subject_id
-          LEFT JOIN tutors t ON st.tutor_id = t.id
-          WHERE t.id IS NOT NULL
+            t.name as tutor_name
+          FROM enrollments e
+          JOIN subjects s ON e.subject_id = s.id
+          JOIN subject_tutors st ON s.id = st.subject_id
+          JOIN tutors t ON st.tutor_id = t.id
+          WHERE e.student_id = ${studentId}
+          AND NOT EXISTS (
+            SELECT 1 FROM tutor_feedback tf
+            WHERE tf.student_id = ${studentId}
+            AND tf.subject_id = s.id
+            AND tf.tutor_id = t.id
+          )
           ORDER BY s.name, t.name
         `
-        
-        console.log("[v0] All subject-tutor combos found:", allSubjectsTutors.rows.length)
-        
-        if (allSubjectsTutors.rows.length > 0) {
-          // Filter client-side to only show feedback not yet submitted
-          const submittedCheck = await sql`
-            SELECT DISTINCT subject_id, tutor_id FROM tutor_feedback WHERE student_id = ${studentId}
-          `
-          const submitted = new Set(submittedCheck.rows.map((r: any) => `${r.subject_id}-${r.tutor_id}`))
-          
-          pendingResult.rows = allSubjectsTutors.rows.filter((row: any) => {
-            const key = `${row.id}-${row.tutor_id}`
-            return !submitted.has(key)
-          })
-          
-          console.log("[v0] After filtering submitted:", pendingResult.rows.length)
-        }
-        
         return NextResponse.json({ success: true, pending: pendingResult.rows })
       } catch (tableError: any) {
         if (tableError.message?.includes("does not exist")) {
