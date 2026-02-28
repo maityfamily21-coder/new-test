@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === "pending" && studentId) {
-      // Get pending feedback subjects for student
+      // Get pending feedback subjects for student - all subjects they can rate
       try {
         const pendingResult = await sql`
           SELECT DISTINCT 
@@ -36,10 +36,9 @@ export async function GET(request: NextRequest) {
             t.id as tutor_id,
             t.name as tutor_name
           FROM subjects s
-          JOIN enrollments e ON s.id = e.subject_id
-          JOIN subject_tutors st ON s.id = st.subject_id
-          JOIN tutors t ON st.tutor_id = t.id
-          WHERE e.student_id = ${studentId}
+          LEFT JOIN subject_tutors st ON s.id = st.subject_id
+          LEFT JOIN tutors t ON st.tutor_id = t.id
+          WHERE t.id IS NOT NULL
           AND NOT EXISTS (
             SELECT 1 FROM tutor_feedback tf
             WHERE tf.student_id = ${studentId}
