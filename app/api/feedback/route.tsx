@@ -27,45 +27,41 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === "pending" && studentId) {
-      // Get pending feedback subjects for student - all subjects they can rate
+      // Get pending feedback subjects for student - based on their course and semester
       try {
-        // Debug: Check what subjects and tutors exist
-        const allSubjects = await sql`SELECT id, name FROM subjects LIMIT 10`
-        const allTutors = await sql`SELECT id, name FROM tutors LIMIT 10`
+        // First get student's course and current semester
+        const studentResult = await sql`
+          SELECT st.course_id, st.current_semester FROM students st WHERE st.id = ${studentId}
+        `
+        const student = studentResult.rows[0]
         
-        console.log("[v0] All subjects:", allSubjects.rows)
-        console.log("[v0] All tutors:", allTutors.rows)
+        console.log("[v0] Student course_id:", student?.course_id, "semester:", student?.current_semester)
         
-        // Try to get subject_tutors - if it doesn't exist, try to get from tutors
-        let subjectTutorsRows = []
-        try {
-          const allSubjectTutors = await sql`SELECT subject_id, tutor_id FROM subject_tutors LIMIT 20`
-          subjectTutorsRows = allSubjectTutors.rows
-        } catch (e) {
-          console.log("[v0] subject_tutors table doesn't exist or error querying it")
+        if (!student?.course_id || !student?.current_semester) {
+          return NextResponse.json({ success: true, pending: [] })
         }
-        
-        console.log("[v0] Subject-tutor mappings:", subjectTutorsRows)
-        
-        // Simple approach: get all subjects and pair with all tutors
+
+        // Get all subjects for the student's course and semester, with their assigned tutors
         const pendingResult = await sql`
           SELECT DISTINCT 
             s.id,
             s.name,
             t.id as tutor_id,
             t.name as tutor_name
-          FROM subjects s,
-               tutors t
-          WHERE t.id IS NOT NULL
+          FROM subjects s
+          JOIN subject_tutors st ON s.id = st.subject_id
+          JOIN tutors t ON st.tutor_id = t.id
+          WHERE s.course_id = ${student.course_id}
+          AND s.semester = ${student.current_semester}
           AND NOT EXISTS (
             SELECT 1 FROM tutor_feedback tf
             WHERE tf.student_id = ${studentId}
             AND tf.subject_id = s.id
             AND tf.tutor_id = t.id
           )
-          LIMIT 50
+          ORDER BY s.name, t.name
         `
-        console.log("[v0] Pending feedback for student", studentId, ":", pendingResult.rows)
+        console.log("[v0] Pending feedback found:", pendingResult.rows.length, "subjects")
         return NextResponse.json({ success: true, pending: pendingResult.rows })
       } catch (tableError: any) {
         if (tableError.message?.includes("does not exist")) {
