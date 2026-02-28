@@ -1,3 +1,5 @@
+export const runtime = 'nodejs'
+
 import PDFDocument from 'pdfkit/js/pdfkit.standalone.js'
 import { neon } from "@neondatabase/serverless"
 
