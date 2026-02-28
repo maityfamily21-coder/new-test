@@ -29,80 +29,53 @@ export async function GET(request: NextRequest) {
     if (action === "pending" && studentId) {
       // Get pending feedback subjects for student
       try {
-        // First get student's course and current semester
+        // Step 1: Check what subjects and tutors exist
+        const subjectsCheck = await sql`SELECT COUNT(*) as count FROM subjects`
+        const tutorsCheck = await sql`SELECT COUNT(*) as count FROM tutors`
+        const mappingsCheck = await sql`SELECT COUNT(*) as count FROM subject_tutors`
+        
+        console.log("[v0] DB Check - Subjects:", subjectsCheck.rows[0]?.count, "Tutors:", tutorsCheck.rows[0]?.count, "Mappings:", mappingsCheck.rows[0]?.count)
+        
+        // Step 2: Get student info
         const studentResult = await sql`
-          SELECT st.course_id, st.current_semester FROM students st WHERE st.id = ${studentId}
+          SELECT id, course_id, current_semester FROM students WHERE id = ${studentId}
         `
         const student = studentResult.rows[0]
+        console.log("[v0] Student found:", !!student, "Course:", student?.course_id, "Semester:", student?.current_semester)
         
-        console.log("[v0] Student:", student?.course_id, student?.current_semester)
+        let pendingResult = { rows: [] }
         
-        let pendingResult
+        // Step 3: Simple approach - get all subjects with tutors, without complex filtering
+        const allSubjectsTutors = await sql`
+          SELECT DISTINCT 
+            s.id,
+            s.name,
+            t.id as tutor_id,
+            t.name as tutor_name,
+            s.course_id,
+            s.semester
+          FROM subjects s
+          LEFT JOIN subject_tutors st ON s.id = st.subject_id
+          LEFT JOIN tutors t ON st.tutor_id = t.id
+          WHERE t.id IS NOT NULL
+          ORDER BY s.name, t.name
+        `
         
-        // Try first with course and semester filter
-        if (student?.course_id && student?.current_semester) {
-          pendingResult = await sql`
-            SELECT DISTINCT 
-              s.id,
-              s.name,
-              t.id as tutor_id,
-              t.name as tutor_name
-            FROM subjects s
-            JOIN subject_tutors st ON s.id = st.subject_id
-            JOIN tutors t ON st.tutor_id = t.id
-            WHERE s.course_id = ${student.course_id}
-            AND s.semester = ${student.current_semester}
-            AND NOT EXISTS (
-              SELECT 1 FROM tutor_feedback tf
-              WHERE tf.student_id = ${studentId}
-              AND tf.subject_id = s.id
-              AND tf.tutor_id = t.id
-            )
-            ORDER BY s.name, t.name
+        console.log("[v0] All subject-tutor combos found:", allSubjectsTutors.rows.length)
+        
+        if (allSubjectsTutors.rows.length > 0) {
+          // Filter client-side to only show feedback not yet submitted
+          const submittedCheck = await sql`
+            SELECT DISTINCT subject_id, tutor_id FROM tutor_feedback WHERE student_id = ${studentId}
           `
-          console.log("[v0] Course/semester filter found:", pendingResult.rows.length)
+          const submitted = new Set(submittedCheck.rows.map((r: any) => `${r.subject_id}-${r.tutor_id}`))
           
-          // If nothing found, fallback to all subjects with tutors
-          if (pendingResult.rows.length === 0) {
-            pendingResult = await sql`
-              SELECT DISTINCT 
-                s.id,
-                s.name,
-                t.id as tutor_id,
-                t.name as tutor_name
-              FROM subjects s
-              JOIN subject_tutors st ON s.id = st.subject_id
-              JOIN tutors t ON st.tutor_id = t.id
-              WHERE NOT EXISTS (
-                SELECT 1 FROM tutor_feedback tf
-                WHERE tf.student_id = ${studentId}
-                AND tf.subject_id = s.id
-                AND tf.tutor_id = t.id
-              )
-              ORDER BY s.name, t.name
-            `
-            console.log("[v0] Fallback to all subjects found:", pendingResult.rows.length)
-          }
-        } else {
-          // No course/semester info, get all subjects with tutors
-          pendingResult = await sql`
-            SELECT DISTINCT 
-              s.id,
-              s.name,
-              t.id as tutor_id,
-              t.name as tutor_name
-            FROM subjects s
-            JOIN subject_tutors st ON s.id = st.subject_id
-            JOIN tutors t ON st.tutor_id = t.id
-            WHERE NOT EXISTS (
-              SELECT 1 FROM tutor_feedback tf
-              WHERE tf.student_id = ${studentId}
-              AND tf.subject_id = s.id
-              AND tf.tutor_id = t.id
-            )
-            ORDER BY s.name, t.name
-          `
-          console.log("[v0] No course/semester, all subjects found:", pendingResult.rows.length)
+          pendingResult.rows = allSubjectsTutors.rows.filter((row: any) => {
+            const key = `${row.id}-${row.tutor_id}`
+            return !submitted.has(key)
+          })
+          
+          console.log("[v0] After filtering submitted:", pendingResult.rows.length)
         }
         
         return NextResponse.json({ success: true, pending: pendingResult.rows })
