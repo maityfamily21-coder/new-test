@@ -1,36 +1,28 @@
 export const runtime = 'nodejs'
 
-import PDFDocument from 'pdfkit/js/pdfkit.standalone.js'
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { neon } from "@neondatabase/serverless"
 
 const sql = neon(process.env.DATABASE_URL!)
 
 export async function POST(request: Request) {
+
   try {
+
     const { subjectId, tutorId, fromDate, toDate } = await request.json()
 
-    /* ===================== DATA ===================== */
+    /* ================= DATABASE ================= */
+
     const tutorInfo = await sql`
-      SELECT 
-        name,
-        department,
-        pan_number,
-        aadhar_card_no,
-        bank_name,
-        ifsc_code,
-        name_as_per_bank,
-        account_number
+      SELECT name, department
       FROM tutors
       WHERE id = ${tutorId}
     `
 
     const subjectInfo = await sql`
-      SELECT s.name, s.code, s.course_id, s.semester, c.name as course_name,
-      (SELECT a.username FROM admins a 
-       JOIN admin_course_assignments aca ON a.id = aca.admin_id 
-       WHERE aca.course_id = c.id LIMIT 1) as admin_name
-      FROM subjects s 
-      JOIN courses c ON s.course_id = c.id 
+      SELECT s.name, s.code, s.course_id, s.semester, c.name as course_name
+      FROM subjects s
+      JOIN courses c ON s.course_id = c.id
       WHERE s.id = ${parseInt(subjectId)}
     `
 
@@ -39,140 +31,158 @@ export async function POST(request: Request) {
       FROM lectures
       WHERE subject_id = ${parseInt(subjectId)}
       AND tutor_id = ${tutorId}
-      AND DATE(lecture_date) BETWEEN ${fromDate} AND ${toDate}
+      AND DATE(lecture_date)
+      BETWEEN ${fromDate} AND ${toDate}
       ORDER BY lecture_date ASC
     `
 
     const students = await sql`
-      SELECT id, full_name
+      SELECT id
       FROM students
       WHERE course_id = ${subjectInfo[0].course_id}
       AND current_semester = ${subjectInfo[0].semester}
-      ORDER BY full_name ASC
     `
 
     const attendanceData = await sql`
-      SELECT la.lecture_id, la.student_id, la.status
-      FROM lecture_attendance la
-      JOIN lectures l ON la.lecture_id = l.id
-      WHERE l.subject_id = ${parseInt(subjectId)}
-      AND DATE(l.lecture_date) BETWEEN ${fromDate} AND ${toDate}
+      SELECT lecture_id, status
+      FROM lecture_attendance
+      WHERE lecture_id IN (${lectures.map(l => l.id)})
     `
 
-    /* ===================== PDF GENERATION ===================== */
+    /* ================= PDF ================= */
 
-    const pdfDoc = new PDFDocument({
-      size: 'A4',
-      margin: 40
+    const pdfDoc = await PDFDocument.create()
+
+    const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
+    const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica)
+
+    const page = pdfDoc.addPage([595, 842])
+
+    let y = 800
+
+    page.drawText("Visiting Tutor Payment Voucher Report", {
+      x: 120,
+      y,
+      size: 18,
+      font: fontBold
     })
 
-    const chunks: Uint8Array[] = []
+    y -= 40
 
-    pdfDoc.on('data', (chunk) => chunks.push(chunk))
-
-    const pdfPromise = new Promise<Response>((resolve, reject) => {
-
-      pdfDoc.on('end', () => {
-        const pdfBuffer = Buffer.concat(chunks)
-
-        resolve(new Response(pdfBuffer, {
-          headers: {
-            'Content-Type': 'application/pdf',
-            'Content-Disposition': 'attachment; filename="attendance-report.pdf"',
-          },
-        }))
-      })
-
-      pdfDoc.on('error', reject)
+    page.drawText(`Tutor: ${tutorInfo[0]?.name || "N/A"}`, {
+      x: 50,
+      y,
+      size: 12,
+      font: fontRegular
     })
 
-    /* ===================== CONTENT ===================== */
+    y -= 20
 
-    pdfDoc
-      .fontSize(16)
-      .font('Helvetica-Bold')
-      .text('Visiting Tutor Payment Voucher Report', { align: 'center' })
+    page.drawText(`Course: ${subjectInfo[0]?.course_name || "N/A"}`, {
+      x: 50,
+      y,
+      size: 12,
+      font: fontRegular
+    })
 
-    pdfDoc.moveDown()
+    y -= 20
 
-    pdfDoc.fontSize(10).font('Helvetica')
+    page.drawText(`Subject: ${subjectInfo[0]?.name || "N/A"}`, {
+      x: 50,
+      y,
+      size: 12,
+      font: fontRegular
+    })
 
-    pdfDoc.text(`Tutor Name: ${tutorInfo[0]?.name || 'N/A'}`)
-    pdfDoc.text(`Department: ${tutorInfo[0]?.department || 'N/A'}`)
-    pdfDoc.text(`Course: ${subjectInfo[0]?.course_name || 'N/A'}`)
-    pdfDoc.text(`Subject: ${subjectInfo[0]?.name || 'N/A'} [${subjectInfo[0]?.code || 'N/A'}]`)
-    pdfDoc.text(`Date Range: ${fromDate} to ${toDate}`)
-    pdfDoc.text(`Total Lectures Conducted: ${lectures.length}`)
+    y -= 20
 
-    const totalPossible = students.length * lectures.length
-    const totalPresent = attendanceData.filter((r: any) => r.status === 'Present').length
-    const overallPercentage =
-      totalPossible > 0
-        ? ((totalPresent / totalPossible) * 100).toFixed(2)
-        : '0.00'
+    page.drawText(`Date Range: ${fromDate} to ${toDate}`, {
+      x: 50,
+      y,
+      size: 12,
+      font: fontRegular
+    })
 
-    pdfDoc.text(`Overall Present Percentage: ${overallPercentage}%`)
+    y -= 40
 
-    pdfDoc.moveDown()
+    page.drawText("LECTURE TOPICS:", {
+      x: 50,
+      y,
+      size: 14,
+      font: fontBold
+    })
 
-    pdfDoc.fontSize(12).font('Helvetica-Bold')
-      .text('LECTURE TOPICS CONDUCTED:', { underline: true })
+    y -= 25
 
-    pdfDoc.moveDown()
+    for (const lecture of lectures) {
 
-    for (const l of lectures) {
+      if (y < 50) {
+        const newPage = pdfDoc.addPage([595, 842])
+        y = 800
+      }
 
-      const start = new Date(l.lecture_date)
+      const presentCount =
+        attendanceData.filter(
+          a => a.lecture_id === lecture.id && a.status === "Present"
+        ).length
 
-      const FOUR_HOUR_SUBJECTS = [
-        'DCS-C-VC-362P2',
-        'DSC-C-DF-111P',
-        'DSC-C-DF-112P'
-      ]
+      page.drawText(
 
-      const isSpecial = FOUR_HOUR_SUBJECTS.includes(subjectInfo[0]?.code)
+        `${new Date(lecture.lecture_date).toLocaleDateString()}  (${presentCount}/${students.length})  ${lecture.title}`,
 
-      const end = new Date(
-        start.getTime() +
-        (isSpecial ? 4 * 60 * 60 * 1000 : 55 * 60000)
+        {
+          x: 50,
+          y,
+          size: 10,
+          font: fontRegular
+        }
       )
 
-      const presentCount = attendanceData.filter(
-        (a: any) => a.lecture_id === l.id && a.status === 'Present'
-      ).length
-
-      pdfDoc.fontSize(9).font('Helvetica')
-
-      pdfDoc.text(
-        `${start.toLocaleDateString('en-GB')} ` +
-        `[${start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}] ` +
-        `[${end.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}] ` +
-        `(${presentCount}/${students.length}) - ${l.title}`
-      )
+      y -= 18
     }
 
-    pdfDoc.moveDown()
-    pdfDoc.moveDown()
+    y -= 40
 
-    pdfDoc.fontSize(10).font('Helvetica-Bold')
-      .text('Visiting Tutor Sign: ____________________')
+    page.drawText("Signature:", {
+      x: 50,
+      y,
+      size: 12,
+      font: fontBold
+    })
 
-    pdfDoc.fontSize(10).font('Helvetica')
-      .text(`(${tutorInfo[0]?.name || 'N/A'})`)
+    y -= 20
 
-    /* ===================== FINALIZE ===================== */
+    page.drawText(tutorInfo[0]?.name || "N/A", {
+      x: 50,
+      y,
+      size: 12,
+      font: fontRegular
+    })
 
-    pdfDoc.end()
+    const pdfBytes = await pdfDoc.save()
 
-    return await pdfPromise
+    return new Response(pdfBytes, {
 
-  } catch (error) {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": "attachment; filename=attendance-report.pdf"
+      }
 
-    console.error("PDF generation error:", error)
+    })
+
+  }
+
+  catch (error) {
+
+    console.error(error)
 
     return Response.json({
+
       success: false,
-      error: "Failed to generate report"
+      error: "PDF generation failed"
+
     }, { status: 500 })
+
   }
+
 }
