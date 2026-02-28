@@ -107,13 +107,16 @@ export default function StudentDashboard() {
   const fetchPendingFeedback = async () => {
     if (!student) return
     try {
+      console.log("[v0] Fetching pending feedback for student:", student.id)
       const response = await fetch(`/api/feedback?studentId=${student.id}&action=pending`)
       const data = await response.json()
+      console.log("[v0] Pending feedback response:", data)
       if (data.success) {
         setPendingFeedback(data.pending || [])
+        console.log("[v0] Set pending feedback to:", data.pending || [])
       }
     } catch (error) {
-      console.error("Error fetching pending feedback:", error)
+      console.error("[v0] Error fetching pending feedback:", error)
     }
   }
 

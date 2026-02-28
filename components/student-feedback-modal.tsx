@@ -35,6 +35,11 @@ export function StudentFeedbackModal({
   const [comments, setComments] = useState("")
   const [submitting, setSubmitting] = useState(false)
 
+  // Debug: Log pending feedback
+  if (open) {
+    console.log("[v0] Student Feedback Modal opened with pending:", pending)
+  }
+
   const handleSubmit = async () => {
     if (!selectedSubject || rating === 0) {
       toast.error("Please select a subject and rating")
