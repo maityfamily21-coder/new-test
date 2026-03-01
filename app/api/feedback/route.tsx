@@ -27,19 +27,30 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === "pending" && studentId) {
-      // Get pending feedback subjects for student - only enrolled subjects with assigned tutors
+      // Get pending feedback subjects for student - based on their course and semester
       try {
+        // Get student's course and current semester
+        const studentResult = await sql`
+          SELECT course_id, current_semester FROM students WHERE id = ${studentId}
+        `
+        const student = studentResult.rows[0]
+        
+        if (!student?.course_id || !student?.current_semester) {
+          return NextResponse.json({ success: true, pending: [] })
+        }
+
+        // Get all subjects for the student's course and semester with their assigned tutors
         const pendingResult = await sql`
           SELECT DISTINCT 
             s.id,
             s.name,
             t.id as tutor_id,
             t.name as tutor_name
-          FROM enrollments e
-          JOIN subjects s ON e.subject_id = s.id
-          JOIN subject_tutors st ON s.id = st.subject_id
-          JOIN tutors t ON st.tutor_id = t.id
-          WHERE e.student_id = ${studentId}
+          FROM subjects s
+          INNER JOIN tutor_subjects ts ON s.id = ts.subject_id
+          INNER JOIN tutors t ON ts.tutor_id = t.id
+          WHERE s.course_id = ${student.course_id}
+          AND s.semester = ${student.current_semester}
           AND NOT EXISTS (
             SELECT 1 FROM tutor_feedback tf
             WHERE tf.student_id = ${studentId}
@@ -48,8 +59,10 @@ export async function GET(request: NextRequest) {
           )
           ORDER BY s.name, t.name
         `
+        console.log("[v0] Found", pendingResult.rows.length, "pending feedback items for student", studentId)
         return NextResponse.json({ success: true, pending: pendingResult.rows })
       } catch (tableError: any) {
+        console.error("[v0] Pending feedback error:", tableError.message)
         if (tableError.message?.includes("does not exist")) {
           return NextResponse.json({ success: true, pending: [] })
         }
