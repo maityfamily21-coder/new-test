@@ -66,11 +66,13 @@ export default function AdminFeedbackPage() {
       // Fetch tutor-wise
       const tutorRes = await fetch("/api/admin/feedback?action=tutorwise")
       const tutorData = await tutorRes.json()
+      console.log("[v0] Tutorwise response:", tutorData)
       setTutorwise(tutorData.tutorwise || [])
 
       // Fetch student-wise
       const studentRes = await fetch("/api/admin/feedback?action=studentwise")
       const studentData = await studentRes.json()
+      console.log("[v0] Studentwise response:", studentData)
       setStudentwise(studentData.studentwise || [])
     } catch (error) {
       console.error("Error fetching feedback data:", error)
