@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === "tutorwise") {
-      // Tutor-wise breakdown with course/semester grouping
+      // Tutor-wise breakdown with subject grouping
       try {
         const tutorWiseResult = await sql`
           SELECT 
@@ -47,32 +47,17 @@ export async function GET(request: NextRequest) {
             t.name,
             s.id as subject_id,
             s.name as subject_name,
-            c.id as course_id,
-            c.name as course_name,
-            s.semester,
             COUNT(DISTINCT tf.student_id) as feedback_count,
             ROUND(AVG(tf.rating)::numeric, 2) as average_rating,
-            COUNT(DISTINCT CASE WHEN tf.rating >= 4 THEN tf.student_id END) as positive_count,
-            JSON_AGG(
-              JSON_BUILD_OBJECT(
-                'student_id', st.id,
-                'student_name', st.name,
-                'enrollment_number', st.enrollment_number,
-                'rating', tf.rating,
-                'comments', tf.comments
-              ) 
-              ORDER BY st.name
-            ) FILTER (WHERE tf.id IS NOT NULL) as feedback_details
+            COUNT(DISTINCT CASE WHEN tf.rating >= 4 THEN tf.student_id END) as positive_count
           FROM tutors t
-          JOIN subject_tutors st_mapping ON t.id = st_mapping.tutor_id
-          JOIN subjects s ON st_mapping.subject_id = s.id
-          JOIN courses c ON s.course_id = c.id
+          LEFT JOIN subject_tutors st_mapping ON t.id = st_mapping.tutor_id
+          LEFT JOIN subjects s ON st_mapping.subject_id = s.id
           LEFT JOIN tutor_feedback tf ON t.id = tf.tutor_id AND s.id = tf.subject_id
-          LEFT JOIN students st ON tf.student_id = st.id
-          GROUP BY t.id, t.name, s.id, s.name, c.id, c.name, s.semester
-          ORDER BY t.name, c.name, s.semester, s.name
+          GROUP BY t.id, t.name, s.id, s.name
+          ORDER BY t.name, s.name
         `
-        console.log("[v0] Tutorwise data found:", tutorWiseResult.rows.length)
+        console.log("[v0] Tutorwise data found:", tutorWiseResult.rows.length, "entries")
         return NextResponse.json({ success: true, tutorwise: tutorWiseResult.rows })
       } catch (tableError: any) {
         console.error("[v0] Tutorwise query error:", tableError.message)
@@ -84,29 +69,25 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === "studentwise") {
-      // Student-wise tracking with course/semester breakdown
+      // Student-wise tracking
       try {
         const studentWiseResult = await sql`
           SELECT 
             st.id,
             st.name,
             st.enrollment_number,
-            c.id as course_id,
-            c.name as course_name,
-            st.current_semester as semester,
             COUNT(DISTINCT tf.id) as submitted_count,
             COUNT(DISTINCT s.id) as eligible_count,
             ROUND(COALESCE(COUNT(DISTINCT tf.id)::numeric / NULLIF(COUNT(DISTINCT s.id), 0) * 100, 0), 2) as completion_percentage,
             ARRAY_AGG(DISTINCT s.name) FILTER (WHERE tf.id IS NULL) as pending_subjects
           FROM students st
-          JOIN courses c ON st.course_id = c.id
-          JOIN subjects s ON c.id = s.course_id AND st.current_semester = s.semester
-          JOIN subject_tutors st_map ON s.id = st_map.subject_id
+          LEFT JOIN subjects s ON st.course_id = s.course_id AND st.current_semester = s.semester
+          LEFT JOIN subject_tutors st_map ON s.id = st_map.subject_id
           LEFT JOIN tutor_feedback tf ON st.id = tf.student_id AND s.id = tf.subject_id
-          GROUP BY st.id, st.name, st.enrollment_number, c.id, c.name, st.current_semester
-          ORDER BY c.name, st.current_semester, st.name
+          GROUP BY st.id, st.name, st.enrollment_number
+          ORDER BY st.name
         `
-        console.log("[v0] Studentwise data found:", studentWiseResult.rows.length)
+        console.log("[v0] Studentwise data found:", studentWiseResult.rows.length, "entries")
         return NextResponse.json({ success: true, studentwise: studentWiseResult.rows })
       } catch (tableError: any) {
         console.error("[v0] Studentwise query error:", tableError.message)
