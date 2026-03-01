@@ -39,26 +39,42 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === "tutorwise") {
-      // Tutor-wise breakdown
+      // Tutor-wise breakdown with course/semester grouping
       try {
         const tutorWiseResult = await sql`
           SELECT 
-            t.id,
-            t.name,
+            t.id as tutor_id,
+            t.name as tutor_name,
+            s.id as subject_id,
             s.name as subject_name,
+            c.id as course_id,
+            c.name as course_name,
+            s.semester,
             COUNT(DISTINCT tf.student_id) as feedback_count,
             ROUND(AVG(tf.rating)::numeric, 2) as average_rating,
-            COUNT(DISTINCT CASE WHEN tf.rating >= 4 THEN tf.student_id END) as positive_count
+            COUNT(DISTINCT CASE WHEN tf.rating >= 4 THEN tf.student_id END) as positive_count,
+            JSON_AGG(
+              JSON_BUILD_OBJECT(
+                'student_id', st.id,
+                'student_name', st.name,
+                'enrollment_number', st.enrollment_number,
+                'rating', tf.rating,
+                'comments', tf.comments
+              ) 
+              ORDER BY st.name
+            ) FILTER (WHERE tf.id IS NOT NULL) as feedback_details
           FROM tutors t
-          JOIN subject_tutors st ON t.id = st.tutor_id
-          JOIN subjects s ON st.subject_id = s.id
+          JOIN subject_tutors st_mapping ON t.id = st_mapping.tutor_id
+          JOIN subjects s ON st_mapping.subject_id = s.id
+          JOIN courses c ON s.course_id = c.id
           LEFT JOIN tutor_feedback tf ON t.id = tf.tutor_id AND s.id = tf.subject_id
-          GROUP BY t.id, t.name, s.id, s.name
-          HAVING COUNT(DISTINCT tf.student_id) > 0
-          ORDER BY t.name, s.name
+          LEFT JOIN students st ON tf.student_id = st.id
+          GROUP BY t.id, t.name, s.id, s.name, c.id, c.name, s.semester
+          ORDER BY t.name, c.name, s.semester, s.name
         `
         return NextResponse.json({ success: true, tutorwise: tutorWiseResult.rows })
       } catch (tableError: any) {
+        console.error("[v0] Tutorwise query error:", tableError.message)
         if (tableError.message?.includes("does not exist")) {
           return NextResponse.json({ success: true, tutorwise: [] })
         }
@@ -67,26 +83,42 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === "studentwise") {
-      // Student-wise tracking
+      // Student-wise tracking with course/semester breakdown
       try {
         const studentWiseResult = await sql`
           SELECT 
             st.id,
             st.name,
             st.enrollment_number,
+            c.id as course_id,
+            c.name as course_name,
+            st.current_semester as semester,
             COUNT(DISTINCT tf.id) as submitted_count,
             COUNT(DISTINCT s.id) as eligible_count,
-            ARRAY_AGG(DISTINCT s.name) FILTER (WHERE tf.id IS NULL) as pending_subjects
+            ROUND(COALESCE(COUNT(DISTINCT tf.id)::numeric / NULLIF(COUNT(DISTINCT s.id), 0) * 100, 0), 2) as completion_percentage,
+            JSON_AGG(
+              CASE WHEN tf.id IS NULL THEN 
+                JSON_BUILD_OBJECT(
+                  'subject_id', s.id,
+                  'subject_name', s.name,
+                  'tutor_id', t.id,
+                  'tutor_name', t.name,
+                  'status', 'pending'
+                )
+              END
+            ) FILTER (WHERE tf.id IS NULL) as pending_feedback
           FROM students st
-          JOIN enrollments e ON st.id = e.student_id
-          JOIN subjects s ON e.subject_id = s.id
-          JOIN subject_tutors st_t ON s.id = st_t.subject_id
-          LEFT JOIN tutor_feedback tf ON st.id = tf.student_id AND s.id = tf.subject_id AND st_t.tutor_id = tf.tutor_id
-          GROUP BY st.id, st.name, st.enrollment_number
-          ORDER BY st.name
+          JOIN courses c ON st.course_id = c.id
+          JOIN subjects s ON c.id = s.course_id AND st.current_semester = s.semester
+          JOIN subject_tutors st_map ON s.id = st_map.subject_id
+          JOIN tutors t ON st_map.tutor_id = t.id
+          LEFT JOIN tutor_feedback tf ON st.id = tf.student_id AND s.id = tf.subject_id AND t.id = tf.tutor_id
+          GROUP BY st.id, st.name, st.enrollment_number, c.id, c.name, st.current_semester
+          ORDER BY c.name, st.current_semester, st.name
         `
         return NextResponse.json({ success: true, studentwise: studentWiseResult.rows })
       } catch (tableError: any) {
+        console.error("[v0] Studentwise query error:", tableError.message)
         if (tableError.message?.includes("does not exist")) {
           return NextResponse.json({ success: true, studentwise: [] })
         }
@@ -95,29 +127,38 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === "withattendance") {
-      // Get feedback with attendance filtering
+      // Get feedback filtered by attendance percentage
       try {
         const feedbackWithAttendance = await sql`
           SELECT 
-            st.id,
-            st.name,
+            tf.id as feedback_id,
+            st.id as student_id,
+            st.name as student_name,
             st.enrollment_number,
-            COALESCE(ROUND((COUNT(DISTINCT al.id)::numeric / NULLIF(COUNT(DISTINCT l.id), 0)) * 100, 2), 0) as attendance_percentage,
-            COALESCE(COUNT(DISTINCT tf.id), 0) as submitted_count,
-            COALESCE(ARRAY_AGG(DISTINCT t.name) FILTER (WHERE tf.id IS NOT NULL), ARRAY[]::text[]) as tutors_rated
-          FROM students st
-          LEFT JOIN enrollments e ON st.id = e.student_id
-          LEFT JOIN lectures l ON e.subject_id = l.subject_id
+            t.id as tutor_id,
+            t.name as tutor_name,
+            s.id as subject_id,
+            s.name as subject_name,
+            c.name as course_name,
+            s.semester,
+            tf.rating,
+            tf.comments,
+            COALESCE(ROUND((COUNT(DISTINCT al.id)::numeric / NULLIF(COUNT(DISTINCT l.id), 0)) * 100, 2), 0) as attendance_percentage
+          FROM tutor_feedback tf
+          JOIN students st ON tf.student_id = st.id
+          JOIN tutors t ON tf.tutor_id = t.id
+          JOIN subjects s ON tf.subject_id = s.id
+          JOIN courses c ON s.course_id = c.id
+          LEFT JOIN enrollments e ON st.id = e.student_id AND s.id = e.subject_id
+          LEFT JOIN lectures l ON s.id = l.subject_id
           LEFT JOIN attendance_logs al ON st.id = al.student_id AND l.id = al.lecture_id
-          LEFT JOIN tutor_feedback tf ON st.id = tf.student_id
-          LEFT JOIN tutors t ON tf.tutor_id = t.id
-          WHERE st.is_active = true
-          GROUP BY st.id, st.name, st.enrollment_number
+          GROUP BY tf.id, st.id, st.name, st.enrollment_number, t.id, t.name, s.id, s.name, c.name, s.semester, tf.rating, tf.comments
           HAVING COALESCE(ROUND((COUNT(DISTINCT al.id)::numeric / NULLIF(COUNT(DISTINCT l.id), 0)) * 100, 2), 0) >= ${attendanceThreshold}
-          ORDER BY attendance_percentage DESC, st.name
+          ORDER BY c.name, s.semester, st.name
         `
         return NextResponse.json({ success: true, feedbackWithAttendance: feedbackWithAttendance.rows })
       } catch (tableError: any) {
+        console.error("[v0] Attendance filter error:", tableError.message)
         if (tableError.message?.includes("does not exist")) {
           return NextResponse.json({ success: true, feedbackWithAttendance: [] })
         }
