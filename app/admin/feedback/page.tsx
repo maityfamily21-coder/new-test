@@ -23,6 +23,7 @@ export default function AdminFeedbackPage() {
   const [settings, setSettings] = useState<any>(null)
   const [attendanceThreshold, setAttendanceThreshold] = useState(0)
   const [managingFeedback, setManagingFeedback] = useState(false)
+  const [expandedTutors, setExpandedTutors] = useState<Set<number>>(new Set())
   const router = useRouter()
 
   useEffect(() => {
@@ -274,41 +275,75 @@ export default function AdminFeedbackPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Tutor-wise Feedback Summary</CardTitle>
-                <CardDescription>Average ratings and feedback counts by tutor</CardDescription>
+                <CardDescription>Click on tutor names to view subject-wise feedback details</CardDescription>
               </CardHeader>
               <CardContent>
                 {tutorwise.length === 0 ? (
                   <p className="text-gray-500 text-center py-8">No feedback data available</p>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Tutor Name</TableHead>
-                          <TableHead>Subject</TableHead>
-                          <TableHead className="text-right">Feedback Count</TableHead>
-                          <TableHead className="text-right">Avg Rating</TableHead>
-                          <TableHead className="text-right">Positive</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {tutorwise.map((tutor, idx) => (
-                          <TableRow key={idx}>
-                            <TableCell className="font-medium">{tutor.name}</TableCell>
-                            <TableCell>{tutor.subject_name}</TableCell>
-                            <TableCell className="text-right">{tutor.feedback_count}</TableCell>
-                            <TableCell className="text-right">
-                              <Badge variant="outline">
-                                {tutor.average_rating || "N/A"} ⭐
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right text-green-600">
-                              {tutor.positive_count || 0}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                  <div className="space-y-4">
+                    {tutorwise.map((tutor, idx) => (
+                      <div key={idx} className="border rounded-lg overflow-hidden">
+                        {/* Tutor Header */}
+                        <div className="bg-gray-100 dark:bg-gray-800 p-4">
+                          <button
+                            onClick={() => {
+                              const newExpanded = new Set(expandedTutors)
+                              if (newExpanded.has(tutor.id)) {
+                                newExpanded.delete(tutor.id)
+                              } else {
+                                newExpanded.add(tutor.id)
+                              }
+                              setExpandedTutors(newExpanded)
+                            }}
+                            className="w-full text-left font-semibold text-lg flex items-center gap-2 hover:text-blue-600"
+                          >
+                            <span>{expandedTutors.has(tutor.id) ? "▼" : "▶"}</span>
+                            {tutor.name}
+                          </button>
+                        </div>
+                        
+                        {/* Subject Details - Expanded */}
+                        {expandedTutors.has(tutor.id) && (
+                          <div className="overflow-x-auto">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Subject</TableHead>
+                                  <TableHead className="text-right">Feedback Count</TableHead>
+                                  <TableHead className="text-right">Avg Rating</TableHead>
+                                  <TableHead className="text-right">Positive (≥4)</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {tutor.subjects && tutor.subjects.length > 0 ? (
+                                  tutor.subjects.map((subject, sIdx) => (
+                                    <TableRow key={sIdx}>
+                                      <TableCell className="font-medium">{subject.subject_name}</TableCell>
+                                      <TableCell className="text-right">{subject.feedback_count}</TableCell>
+                                      <TableCell className="text-right">
+                                        <Badge variant="outline">
+                                          {subject.average_rating || "N/A"} ⭐
+                                        </Badge>
+                                      </TableCell>
+                                      <TableCell className="text-right text-green-600">
+                                        {subject.positive_count || 0}
+                                      </TableCell>
+                                    </TableRow>
+                                  ))
+                                ) : (
+                                  <TableRow>
+                                    <TableCell colSpan={4} className="text-center text-gray-500">
+                                      No subject data available
+                                    </TableCell>
+                                  </TableRow>
+                                )}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
               </CardContent>
@@ -320,7 +355,7 @@ export default function AdminFeedbackPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Student Feedback Tracking</CardTitle>
-                <CardDescription>See which students have submitted feedback</CardDescription>
+                <CardDescription>Monitor student feedback submission progress</CardDescription>
               </CardHeader>
               <CardContent>
                 {studentwise.length === 0 ? (
@@ -331,10 +366,11 @@ export default function AdminFeedbackPage() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Student Name</TableHead>
-                          <TableHead>Enrollment</TableHead>
+                          <TableHead>Enrollment #</TableHead>
                           <TableHead className="text-right">Submitted</TableHead>
                           <TableHead className="text-right">Eligible</TableHead>
-                          <TableHead>Pending Subjects</TableHead>
+                          <TableHead className="text-right">Completion %</TableHead>
+                          <TableHead>Status</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -343,16 +379,19 @@ export default function AdminFeedbackPage() {
                             <TableCell className="font-medium">{student.name}</TableCell>
                             <TableCell>{student.enrollment_number}</TableCell>
                             <TableCell className="text-right">
-                              <Badge className="bg-green-600">{student.submitted_count}</Badge>
+                              <Badge className="bg-blue-600">{student.submitted_count || 0}</Badge>
                             </TableCell>
-                            <TableCell className="text-right">{student.eligible_count}</TableCell>
+                            <TableCell className="text-right">{student.eligible_count || 0}</TableCell>
+                            <TableCell className="text-right font-semibold">
+                              {student.completion_percentage || 0}%
+                            </TableCell>
                             <TableCell>
-                              {student.pending_subjects?.length > 0 ? (
-                                <span className="text-sm text-red-600">
-                                  {student.pending_subjects.join(", ")}
-                                </span>
+                              {student.completion_percentage === 100 ? (
+                                <Badge className="bg-green-600">Complete ✓</Badge>
+                              ) : student.completion_percentage > 0 ? (
+                                <Badge className="bg-yellow-600">In Progress</Badge>
                               ) : (
-                                <Badge className="bg-green-600">Complete</Badge>
+                                <Badge className="bg-red-600">Pending</Badge>
                               )}
                             </TableCell>
                           </TableRow>
