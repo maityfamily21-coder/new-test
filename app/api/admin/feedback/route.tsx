@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === "tutorwise") {
-      // Tutor-wise breakdown with subject grouping
+      // Tutor-wise breakdown - directly from feedback data
       try {
         const tutorWiseResult = await sql`
           SELECT 
@@ -49,11 +49,21 @@ export async function GET(request: NextRequest) {
             s.name as subject_name,
             COUNT(DISTINCT tf.student_id) as feedback_count,
             ROUND(AVG(tf.rating)::numeric, 2) as average_rating,
-            COUNT(DISTINCT CASE WHEN tf.rating >= 4 THEN tf.student_id END) as positive_count
-          FROM tutors t
-          LEFT JOIN subject_tutors st_mapping ON t.id = st_mapping.tutor_id
-          LEFT JOIN subjects s ON st_mapping.subject_id = s.id
-          LEFT JOIN tutor_feedback tf ON t.id = tf.tutor_id AND s.id = tf.subject_id
+            COUNT(DISTINCT CASE WHEN tf.rating >= 4 THEN tf.student_id END) as positive_count,
+            JSON_AGG(
+              JSON_BUILD_OBJECT(
+                'student_id', st.id,
+                'student_name', st.name,
+                'enrollment_number', st.enrollment_number,
+                'rating', tf.rating,
+                'comments', tf.comments
+              )
+              ORDER BY st.name
+            ) FILTER (WHERE tf.id IS NOT NULL) as student_feedback
+          FROM tutor_feedback tf
+          JOIN tutors t ON tf.tutor_id = t.id
+          JOIN subjects s ON tf.subject_id = s.id
+          LEFT JOIN students st ON tf.student_id = st.id
           GROUP BY t.id, t.name, s.id, s.name
           ORDER BY t.name, s.name
         `
@@ -69,7 +79,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === "studentwise") {
-      // Student-wise tracking
+      // Student-wise tracking - show feedback submitted and pending
       try {
         const studentWiseResult = await sql`
           SELECT 
@@ -77,13 +87,23 @@ export async function GET(request: NextRequest) {
             st.name,
             st.enrollment_number,
             COUNT(DISTINCT tf.id) as submitted_count,
-            COUNT(DISTINCT s.id) as eligible_count,
-            ROUND(COALESCE(COUNT(DISTINCT tf.id)::numeric / NULLIF(COUNT(DISTINCT s.id), 0) * 100, 0), 2) as completion_percentage,
-            ARRAY_AGG(DISTINCT s.name) FILTER (WHERE tf.id IS NULL) as pending_subjects
+            (SELECT COUNT(DISTINCT s.id) FROM subjects s WHERE s.course_id = st.course_id AND s.semester = st.current_semester) as eligible_count,
+            ROUND(COALESCE(COUNT(DISTINCT tf.id)::numeric / NULLIF((SELECT COUNT(DISTINCT s.id) FROM subjects s WHERE s.course_id = st.course_id AND s.semester = st.current_semester), 0) * 100, 0), 2) as completion_percentage,
+            JSON_AGG(
+              JSON_BUILD_OBJECT(
+                'tutor_id', t.id,
+                'tutor_name', t.name,
+                'subject_id', s.id,
+                'subject_name', s.name,
+                'rating', tf.rating,
+                'comments', tf.comments
+              )
+              ORDER BY t.name
+            ) FILTER (WHERE tf.id IS NOT NULL) as submitted_feedback
           FROM students st
-          LEFT JOIN subjects s ON st.course_id = s.course_id AND st.current_semester = s.semester
-          LEFT JOIN subject_tutors st_map ON s.id = st_map.subject_id
-          LEFT JOIN tutor_feedback tf ON st.id = tf.student_id AND s.id = tf.subject_id
+          LEFT JOIN tutor_feedback tf ON st.id = tf.student_id
+          LEFT JOIN tutors t ON tf.tutor_id = t.id
+          LEFT JOIN subjects s ON tf.subject_id = s.id
           GROUP BY st.id, st.name, st.enrollment_number
           ORDER BY st.name
         `
