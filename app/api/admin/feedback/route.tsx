@@ -39,36 +39,45 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === "tutorwise") {
-      // Tutor-wise breakdown - directly from feedback data
+      // Tutor-wise breakdown - get all feedback grouped by tutor and subject
       try {
+        // First get all tutors with feedback
         const tutorWiseResult = await sql`
-          SELECT 
+          SELECT DISTINCT
             t.id,
-            t.name,
-            s.id as subject_id,
-            s.name as subject_name,
-            COUNT(DISTINCT tf.student_id) as feedback_count,
-            ROUND(AVG(tf.rating)::numeric, 2) as average_rating,
-            COUNT(DISTINCT CASE WHEN tf.rating >= 4 THEN tf.student_id END) as positive_count,
-            JSON_AGG(
-              JSON_BUILD_OBJECT(
-                'student_id', st.id,
-                'student_name', st.name,
-                'enrollment_number', st.enrollment_number,
-                'rating', tf.rating,
-                'comments', tf.comments
-              )
-              ORDER BY st.name
-            ) FILTER (WHERE tf.id IS NOT NULL) as student_feedback
+            t.name
           FROM tutor_feedback tf
           JOIN tutors t ON tf.tutor_id = t.id
-          JOIN subjects s ON tf.subject_id = s.id
-          LEFT JOIN students st ON tf.student_id = st.id
-          GROUP BY t.id, t.name, s.id, s.name
-          ORDER BY t.name, s.name
+          ORDER BY t.name
         `
-        console.log("[v0] Tutorwise data found:", tutorWiseResult.rows.length, "entries")
-        return NextResponse.json({ success: true, tutorwise: tutorWiseResult.rows })
+        console.log("[v0] Tutorwise tutors found:", tutorWiseResult.rows.length)
+        
+        // For each tutor, get their subject feedback summaries
+        const tutorData = await Promise.all(
+          tutorWiseResult.rows.map(async (tutor: any) => {
+            const subjectData = await sql`
+              SELECT 
+                s.id as subject_id,
+                s.name as subject_name,
+                COUNT(DISTINCT tf.student_id) as feedback_count,
+                ROUND(AVG(tf.rating)::numeric, 2) as average_rating,
+                COUNT(DISTINCT CASE WHEN tf.rating >= 4 THEN tf.student_id END) as positive_count
+              FROM tutor_feedback tf
+              JOIN subjects s ON tf.subject_id = s.id
+              WHERE tf.tutor_id = ${tutor.id}
+              GROUP BY s.id, s.name
+              ORDER BY s.name
+            `
+            return {
+              id: tutor.id,
+              name: tutor.name,
+              subjects: subjectData.rows
+            }
+          })
+        )
+        
+        console.log("[v0] Tutorwise data prepared:", tutorData.length, "tutors")
+        return NextResponse.json({ success: true, tutorwise: tutorData })
       } catch (tableError: any) {
         console.error("[v0] Tutorwise query error:", tableError.message)
         if (tableError.message?.includes("does not exist")) {
@@ -79,36 +88,64 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === "studentwise") {
-      // Student-wise tracking - show feedback submitted and pending
+      // Student-wise tracking - show all students and their feedback status
       try {
         const studentWiseResult = await sql`
-          SELECT 
+          SELECT DISTINCT
             st.id,
             st.name,
             st.enrollment_number,
-            COUNT(DISTINCT tf.id) as submitted_count,
-            (SELECT COUNT(DISTINCT s.id) FROM subjects s WHERE s.course_id = st.course_id AND s.semester = st.current_semester) as eligible_count,
-            ROUND(COALESCE(COUNT(DISTINCT tf.id)::numeric / NULLIF((SELECT COUNT(DISTINCT s.id) FROM subjects s WHERE s.course_id = st.course_id AND s.semester = st.current_semester), 0) * 100, 0), 2) as completion_percentage,
-            JSON_AGG(
-              JSON_BUILD_OBJECT(
-                'tutor_id', t.id,
-                'tutor_name', t.name,
-                'subject_id', s.id,
-                'subject_name', s.name,
-                'rating', tf.rating,
-                'comments', tf.comments
-              )
-              ORDER BY t.name
-            ) FILTER (WHERE tf.id IS NOT NULL) as submitted_feedback
+            st.course_id,
+            st.current_semester
           FROM students st
-          LEFT JOIN tutor_feedback tf ON st.id = tf.student_id
-          LEFT JOIN tutors t ON tf.tutor_id = t.id
-          LEFT JOIN subjects s ON tf.subject_id = s.id
-          GROUP BY st.id, st.name, st.enrollment_number
           ORDER BY st.name
         `
-        console.log("[v0] Studentwise data found:", studentWiseResult.rows.length, "entries")
-        return NextResponse.json({ success: true, studentwise: studentWiseResult.rows })
+        console.log("[v0] Students found:", studentWiseResult.rows.length)
+        
+        // For each student, get their feedback submission status
+        const studentData = await Promise.all(
+          studentWiseResult.rows.map(async (student: any) => {
+            const submittedFeedback = await sql`
+              SELECT 
+                tf.id,
+                t.id as tutor_id,
+                t.name as tutor_name,
+                s.id as subject_id,
+                s.name as subject_name,
+                tf.rating,
+                tf.comments
+              FROM tutor_feedback tf
+              JOIN tutors t ON tf.tutor_id = t.id
+              JOIN subjects s ON tf.subject_id = s.id
+              WHERE tf.student_id = ${student.id}
+              ORDER BY t.name, s.name
+            `
+            
+            const eligibleSubjects = await sql`
+              SELECT COUNT(DISTINCT s.id) as count
+              FROM subjects s
+              WHERE s.course_id = ${student.course_id}
+              AND s.semester = ${student.current_semester}
+            `
+            
+            const eligible = eligibleSubjects.rows[0]?.count || 0
+            const submitted = submittedFeedback.rows.length
+            const completion = eligible > 0 ? Math.round((submitted / eligible) * 100) : 0
+            
+            return {
+              id: student.id,
+              name: student.name,
+              enrollment_number: student.enrollment_number,
+              submitted_count: submitted,
+              eligible_count: eligible,
+              completion_percentage: completion,
+              submitted_feedback: submittedFeedback.rows
+            }
+          })
+        )
+        
+        console.log("[v0] Studentwise data prepared:", studentData.length, "students")
+        return NextResponse.json({ success: true, studentwise: studentData })
       } catch (tableError: any) {
         console.error("[v0] Studentwise query error:", tableError.message)
         if (tableError.message?.includes("does not exist")) {
